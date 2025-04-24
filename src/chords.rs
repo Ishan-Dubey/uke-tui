@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+
+const EMBEDDED_CHORDS: &str = include_str!("../chords.txt");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chord {
@@ -13,6 +13,25 @@ pub struct Chord {
 }
 
 impl Chord {
+    /// Load from an external file if present, otherwise use the embedded copy.
+    pub fn load_all() -> Vec<Chord> {
+        // Try external file first
+        let from_file = std::fs::read_to_string("chords.txt").ok();
+        let data = from_file.as_deref().unwrap_or(EMBEDDED_CHORDS);
+
+        data
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    return None;
+                }
+                let (name, frets) = line.split_once('=')?;
+                Chord::from_string(name.trim(), frets.trim())
+            })
+            .collect()
+    }
+
     /// Parse a line like `C#dim = 0 1 0 4`
     pub fn from_string(full_name: &str, frets_str: &str) -> Option<Self> {
         let name = full_name.trim().to_string();
@@ -42,24 +61,6 @@ impl Chord {
             .collect();
 
         Some(Chord { name, frets, alias_names })
-    }
-
-    /// Load all chords from `chords.txt` (skips empty/“#” lines)
-    pub fn load_from_file(path: &str) -> Vec<Self> {
-        let file = File::open(path).expect("Could not open chord file.");
-        let reader = BufReader::new(file);
-        reader
-            .lines()
-            .filter_map(|l| l.ok())
-            .filter_map(|line| {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with('#') {
-                    return None;
-                }
-                let (name, frets) = line.split_once('=')?;
-                Self::from_string(name, frets)
-            })
-            .collect()
     }
     
     /// Inspect this chord’s frets and return (min_fret, max_fret), ignoring 0/Open and X/None.

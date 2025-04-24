@@ -5,8 +5,8 @@ use chords::Chord;
 use std::process;
 
 fn main() {
-    // Load all chords from file
-    let chords = Chord::load_from_file("chords.txt");
+    // Load all chords
+    let chords = Chord::load_all();
 
     // Launch TUI app
     let app = tui::App::new(chords);
