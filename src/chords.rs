@@ -75,30 +75,48 @@ impl Chord {
 
     /// Very simple horizontal 0–4 fretboard (open = O, mute = X, note = ●)
     pub fn render(&self) -> String {
+        // Strings in order 0:G,1:C,2:E,3:A
         let strings = ["G", "C", "E", "A"];
         let mut out = String::new();
-        out.push_str(&format!("Chord: {}\n", self.name));
-        out.push_str("     0   1   2   3   4\n");
-        out.push_str("   ---------------------\n");
 
-        // Loop from A(3) → G(0)
+        // Title
+        out.push_str(&format!("Chord: {}\n", self.name));
+
+        // Header: 4 spaces (prefix width), then frets 1..=4 each right-aligned width=3
+        let prefix_width = 3;
+        out.push_str(&" ".repeat(prefix_width));
+        for fret in 1..=5 {
+            out.push_str(&format!("{:>3}", fret));
+        }
+        out.push('\n');
+
+        // Divider line: total width = prefix_width + 4*3
+        let total_width = prefix_width + 2 + 5 * 3;
+        out.push_str(&"-".repeat(total_width));
+        out.push('\n');
+
+        // Rows, from A(idx=3) up to G(idx=0)
         for &idx in &[3, 2, 1, 0] {
             let s = strings[idx];
-            let f = self.frets[idx];
-            // prefix: open, muted, or blank
-            if f == Some(0) {
-                out.push_str(&format!("{:>2} O |", s));
-            } else if f.is_none() {
-                out.push_str(&format!("{:>2} X |", s));
-            } else {
-                out.push_str(&format!("{:>2}   |", s));
-            }
-            // frets 1–4
-            for fret in 1..=4 {
-                if f == Some(fret) {
-                    out.push_str(" ● ");
+            let fval = self.frets[idx];
+
+            // Single-char indicator: O=open (Some(0)), X=muted (None), ' '=fret>0
+            let ind = match fval {
+                Some(0) => 'O',
+                None    => 'X',
+                _       => ' ',
+            };
+
+            // Fixed 4-char prefix: "<string><ind>| "
+            // e.g. "A | " or "E O| " or "G  | "
+            out.push_str(&format!("{} {}| ", s, ind));
+
+            // Cells for frets 1..=4
+            for fret in 1..=5 {
+                if fval == Some(fret) {
+                    out.push_str("●  ");
                 } else {
-                    out.push_str(" - ");
+                    out.push_str("-  ");
                 }
             }
             out.push('\n');
@@ -106,7 +124,7 @@ impl Chord {
 
         out
     }
-
+    
     // ──────────────── private helpers ────────────────
 
     /// Split "C#dim" → ("C#", "dim")
