@@ -19,8 +19,7 @@ impl Chord {
         let from_file = std::fs::read_to_string("chords.txt").ok();
         let data = from_file.as_deref().unwrap_or(EMBEDDED_CHORDS);
 
-        data
-            .lines()
+        data.lines()
             .filter_map(|line| {
                 let line = line.trim();
                 if line.is_empty() || line.starts_with('#') {
@@ -37,7 +36,7 @@ impl Chord {
         let name = full_name.trim().to_string();
 
         // Parse exactly four tokens into Option<u8>
-        let parts: Vec<&str> = frets_str.trim().split_whitespace().collect();
+        let parts: Vec<&str> = frets_str.split_whitespace().collect();
         if parts.len() != 4 {
             return None;
         }
@@ -60,9 +59,13 @@ impl Chord {
             .map(|r| format!("{}{}", r, quality))
             .collect();
 
-        Some(Chord { name, frets, alias_names })
+        Some(Chord {
+            name,
+            frets,
+            alias_names,
+        })
     }
-    
+
     /// Inspect this chord’s frets and return (min_fret, max_fret), ignoring 0/Open and X/None.
     pub fn fret_bounds(&self) -> Option<(u8, u8)> {
         let used: Vec<u8> = self
@@ -95,14 +98,14 @@ impl Chord {
 
     /// Render this chord over exactly start..=end frets (all rows use the same window).
     pub fn render_range(&self, start_fret: u8, end_fret: u8) -> String {
-        let strings = ["G","C","E","A"];
+        let strings = ["G", "C", "E", "A"];
         let mut out = String::new();
 
         // Title
         out.push_str(&format!("Chord: {}\n", self.name));
 
         // Header indent + fret numbers
-        let prefix = "   ";          // 3 spaces
+        let prefix = "   "; // 3 spaces
         out.push_str(prefix);
         for f in start_fret..=end_fret {
             out.push_str(&format!("{:>3}", f));
@@ -110,18 +113,18 @@ impl Chord {
         out.push('\n');
 
         // Divider line
-        let total_width = prefix.len() + ((end_fret - start_fret + 1) as usize)*3;
+        let total_width = prefix.len() + ((end_fret - start_fret + 1) as usize) * 3;
         out.push_str(&"-".repeat(total_width));
         out.push('\n');
 
         // Each string row (A E C G)
-        for &i in &[3,2,1,0] {
+        for &i in &[3, 2, 1, 0] {
             let s = strings[i];
             let fv = self.frets[i];
             let ind = match fv {
                 Some(0) => 'O',
-                None    => 'X',
-                _       => ' ',
+                None => 'X',
+                _ => ' ',
             };
             // e.g. "G O| "
             out.push_str(&format!("{} {}| ", s, ind));
@@ -139,19 +142,23 @@ impl Chord {
 
         out
     }
-    
-// ──────────────── Helper functions ────────────────
+
+    // ──────────────── Helper functions ────────────────
 
     /// Split a chord into note + type. "C#dim" → ("C#", "dim")
     fn split_name(name: &str) -> Option<(String, String)> {
         // Try the 2-char roots first, then single letters
         let roots = [
-            "A#", "Bb", "C#", "Db", "D#", "Eb", "F#", "Gb", "G#", "Ab",
-            "A", "B", "C", "D", "E", "F", "G",
+            "A#", "Bb", "C#", "Db", "D#", "Eb", "F#", "Gb", "G#", "Ab", "A", "B", "C", "D", "E",
+            "F", "G",
         ];
         for &r in &roots {
-            if name.starts_with(r) {
-                let qual = name[r.len()..].to_string();
+            // if name.starts_with(r) {
+            //     let qual = name[r.len()..].to_string();
+            //     return Some((r.to_string(), qual));
+            // }
+            if let Some(stripped) = name.strip_prefix(r) {
+                let qual = stripped.to_string();
                 return Some((r.to_string(), qual));
             }
         }

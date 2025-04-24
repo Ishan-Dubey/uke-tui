@@ -4,16 +4,18 @@ use std::{
 };
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Terminal,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -24,14 +26,12 @@ pub struct App {
     input: String,
     chords: Vec<Chord>,
     diagrams: Vec<String>,
-    scroll: u16, // scroll for diagrams
+    scroll: u16,      // scroll for diagrams
     help_shown: bool, // whether help modal is visible
     help_scroll: u16, // scroll for help modal
 }
 
-
 impl App {
-
     /// Creates a new app instance
     pub fn new(chords: Vec<Chord>) -> Self {
         Self {
@@ -51,18 +51,19 @@ impl App {
         let raw = self.input.trim();
         self.diagrams.clear();
         if raw.is_empty() {
-            self.diagrams.push(
-                "Please enter one or more chords, separated by commas.".into()
-            );
+            self.diagrams
+                .push("Please enter one or more chords, separated by commas.".into());
         } else {
             // collect matches / not-founds
             let mut selected = Vec::new();
             for entry in raw.split(',') {
                 let key = entry.trim().to_string();
-                if key.is_empty() { continue; }
+                if key.is_empty() {
+                    continue;
+                }
                 match self.chords.iter().find(|c| c.matches_name(&key)) {
                     Some(ch) => selected.push((key, ch)),
-                    None     => self.diagrams.push(format!("Chord not found: {}", key)),
+                    None => self.diagrams.push(format!("Chord not found: {}", key)),
                 }
             }
             if !selected.is_empty() {
@@ -79,7 +80,7 @@ impl App {
                     }
                 }
                 let start = if has_open || gmin < 2 { 1 } else { gmin };
-                let end   = std::cmp::max(gmax, start + 4);
+                let end = std::cmp::max(gmax, start + 4);
                 for (key, chord) in selected {
                     let mut d = chord.render_range(start, end);
                     if let Some(pos) = d.find('\n') {
@@ -93,7 +94,6 @@ impl App {
         self.input.clear();
         self.scroll = 0;
     }
-
 }
 
 pub fn run_tui(mut app: App) -> io::Result<()> {
@@ -205,7 +205,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                 {
                     // INITIAL LOGO + PROMPT
                     let box_width = area.width as usize;
-                
+
                     // ASCII art
                     let lines = vec![
                         "     @@@@@@@@                                                        ".to_string(),
@@ -227,7 +227,6 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                         "".to_string(),
                     ];
 
-                
                     // Center each line horizontally
                     lines
                         .into_iter()
@@ -248,7 +247,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                     let rows = combine_diagrams_grid(&app.diagrams, max_w, 2);
                     rows.join("\n")
                 };
-                
+
                 // Render it
                 let diags = Paragraph::new(text_block)
                     .block(
@@ -275,52 +274,86 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
         }
 
         // Input / scrolling events
-        let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_default();
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_default();
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if app.help_shown {
                     match key {
-                        KeyEvent { code: KeyCode::Esc, .. }
-                        | KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } =>
-                        {
+                        KeyEvent {
+                            code: KeyCode::Esc, ..
+                        }
+                        | KeyEvent {
+                            code: KeyCode::Char('c'),
+                            modifiers: KeyModifiers::CONTROL,
+                            ..
+                        } => {
                             app.help_shown = false;
                         }
-                        KeyEvent { code: KeyCode::Up, .. } => {
+                        KeyEvent {
+                            code: KeyCode::Up, ..
+                        } => {
                             if app.help_scroll > 0 {
                                 app.help_scroll -= 1;
                             }
                         }
-                        KeyEvent { code: KeyCode::Down, .. } => {
+                        KeyEvent {
+                            code: KeyCode::Down,
+                            ..
+                        } => {
                             app.help_scroll = app.help_scroll.saturating_add(1);
                         }
                         _ => {}
                     }
                 } else {
                     match key {
-                        KeyEvent { code: KeyCode::Char('?'), .. } => {
+                        KeyEvent {
+                            code: KeyCode::Char('?'),
+                            ..
+                        } => {
                             app.help_shown = true;
                             app.help_scroll = 0;
                         }
-                        KeyEvent { code: KeyCode::Esc, .. }
-                        | KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } =>
-                        {
+                        KeyEvent {
+                            code: KeyCode::Esc, ..
+                        }
+                        | KeyEvent {
+                            code: KeyCode::Char('c'),
+                            modifiers: KeyModifiers::CONTROL,
+                            ..
+                        } => {
                             break;
                         }
-                        KeyEvent { code: KeyCode::Char(c), .. } => {
+                        KeyEvent {
+                            code: KeyCode::Char(c),
+                            ..
+                        } => {
                             app.input.push(c);
                         }
-                        KeyEvent { code: KeyCode::Backspace, .. } => {
+                        KeyEvent {
+                            code: KeyCode::Backspace,
+                            ..
+                        } => {
                             app.input.pop();
                         }
-                        KeyEvent { code: KeyCode::Enter, .. } => {
+                        KeyEvent {
+                            code: KeyCode::Enter,
+                            ..
+                        } => {
                             app.lookup();
                         }
-                        KeyEvent { code: KeyCode::Up, .. } => {
+                        KeyEvent {
+                            code: KeyCode::Up, ..
+                        } => {
                             if app.scroll > 0 {
                                 app.scroll -= 1;
                             }
                         }
-                        KeyEvent { code: KeyCode::Down, .. } => {
+                        KeyEvent {
+                            code: KeyCode::Down,
+                            ..
+                        } => {
                             app.scroll = app.scroll.saturating_add(1);
                         }
                         _ => {}
@@ -335,7 +368,6 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
         }
     }
 
-
     // Restore
     disable_raw_mode()?;
     execute!(
@@ -349,11 +381,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
 
 /// Arrange diagrams into rows that wrap at `max_width`, spacing them by `spacing` columns,
 /// and padding each line to the display‐width of its block.
-fn combine_diagrams_grid(
-    diagrams: &[String],
-    max_width: usize,
-    spacing: usize,
-) -> Vec<String> {
+fn combine_diagrams_grid(diagrams: &[String], max_width: usize, spacing: usize) -> Vec<String> {
     // Split into lines and compute each block’s display‐width & height
     let blocks: Vec<Vec<String>> = diagrams
         .iter()
@@ -379,7 +407,11 @@ fn combine_diagrams_grid(
     let mut used_w = 0;
 
     for (i, &w) in widths.iter().enumerate() {
-        let needed = if cur.is_empty() { w } else { used_w + spacing + w };
+        let needed = if cur.is_empty() {
+            w
+        } else {
+            used_w + spacing + w
+        };
         if needed > max_width && !cur.is_empty() {
             rows.push(cur);
             cur = vec![i];

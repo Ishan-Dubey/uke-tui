@@ -2,10 +2,12 @@
 name = "uke-tui"
 version = "0.1.0"
 edition = "2024"
+description = "A terminal ukulele-chord viewer with Ratatui"
+repository = "https://github.com/ishan-dubey/uke-tui"
+homepage = "https://github.com/ishan-dubey/uke-tui"
+keywords = ["ukulele", "cli", "tui", "rust"]
+categories = ["command-line-utilities", "text-processing"]
 license = "MIT"
-include = ["src/**", "Cargo.toml", "chords.txt", "LICENSE", "README.md"]
-
-
 
 [dependencies]
 crossterm = "0.29.0"
