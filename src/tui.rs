@@ -3,19 +3,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph},
-    Terminal,
-};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    Terminal,
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::chords::Chord;
@@ -24,67 +23,61 @@ pub struct App {
     input: String,
     chords: Vec<Chord>,
     diagrams: Vec<String>,
-    scroll: u16, // vertical scroll
+    scroll: u16,       // scroll for diagrams
+    help_shown: bool,  // whether help modal is visible
+    help_scroll: u16,  // scroll for help modal
 }
+
 
 impl App {
     pub fn new(chords: Vec<Chord>) -> Self {
         Self {
             input: String::new(),
             chords,
-            diagrams: vec!["Type a chord and press Enter".into()],
+            diagrams: vec!["Type comma separated chords and press Enter.".into()],
             scroll: 0,
+            help_shown: false,
+            help_scroll: 0,
         }
     }
 
     fn lookup(&mut self) {
+        // same two-pass global range logic as before, but skip if help is shown
+        self.help_shown = false;
+        self.help_scroll = 0;
         let raw = self.input.trim();
         self.diagrams.clear();
-
         if raw.is_empty() {
             self.diagrams.push(
                 "Please enter one or more chords, separated by commas".into()
             );
         } else {
-            // 1) Collect (user_key, &Chord) for each match; push "not found" immediately.
-            let mut selected: Vec<(String, &Chord)> = Vec::new();
+            // collect matches / not-founds
+            let mut selected = Vec::new();
             for entry in raw.split(',') {
                 let key = entry.trim().to_string();
-                if key.is_empty() {
-                    continue;
-                }
+                if key.is_empty() { continue; }
                 match self.chords.iter().find(|c| c.matches_name(&key)) {
                     Some(ch) => selected.push((key, ch)),
                     None     => self.diagrams.push(format!("Chord not found: {}", key)),
                 }
             }
-
-            // 2) If we have at least one real chord, compute the common fret window:
             if !selected.is_empty() {
-                let mut global_min = u8::MAX;
-                let mut global_max = 0u8;
+                let mut gmin = u8::MAX;
+                let mut gmax = 0u8;
                 let mut has_open = false;
-
                 for (_, chord) in &selected {
-                    // detect open strings
                     if chord.frets.iter().any(|&f| f == Some(0)) {
                         has_open = true;
                     }
-                    // get its fret bounds
                     if let Some((mn, mx)) = chord.fret_bounds() {
-                        global_min = global_min.min(mn);
-                        global_max = global_max.max(mx);
+                        gmin = gmin.min(mn);
+                        gmax = gmax.max(mx);
                     }
                 }
-
-                // decide start/end
-                let start = if has_open || global_min < 2 { 1 } else { global_min };
-                // ensure at least a 5-fret window if you like:
-                let end   = std::cmp::max(global_max, start + 4);
-
-                // 3) Render every selected chord with that window
+                let start = if has_open || gmin < 2 { 1 } else { gmin };
+                let end   = std::cmp::max(gmax, start + 4);
                 for (key, chord) in selected {
-                    // use render_range and then swap out the stored name
                     let mut d = chord.render_range(start, end);
                     if let Some(pos) = d.find('\n') {
                         let rest = &d[pos..];
@@ -94,8 +87,6 @@ impl App {
                 }
             }
         }
-
-        // clear input & reset scroll
         self.input.clear();
         self.scroll = 0;
     }
@@ -107,103 +98,248 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut term = Terminal::new(backend)?;
 
     let tick_rate = Duration::from_millis(200);
     let mut last_tick = Instant::now();
 
     loop {
-        terminal.draw(|f| {
+        // 1) Draw
+        term.draw(|f| {
+
             let area = f.area();
 
-            // split into 3 vertical chunks: input, diagram grid, footer
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints([
-                    Constraint::Length(3),  // input box
-                    Constraint::Min(5),     // diagrams area
-                    Constraint::Length(1),  // footer/info bar
-                ])
-                .split(area);
+            if app.help_shown {
+                // Build help text
+                let lines: Vec<String> = vec![
+                    "Help — Keybindings".into(),
+                    "".into(),
+                    "Enter   : lookup chords".into(),
+                    "↑ / ↓   : scroll diagrams".into(),
+                    "?       : show/hide this help".into(),
+                    "Esc/C-c : quit help or exit".into(),
+                    "".into(),
+                    "Usage: [Note][Accidental][Type], where".into(),
+                    "Note = C, D, E, F, G, A, B".into(),
+                    "Accidental = None, #, b".into(),
+                    "Type = None (default = maj), m, 7, maj7, m7, dim7, m7b5, 9, maj9, m9, 6, m6, add9, madd9, sus2, sus4, 7sus2, 7sus4, 7+5, 7b5, mM7, 6/9, aug, dim, add11, madd11".into(),
+                    // "Supported chords:".into(),
+                    "".into(),
+                    "Example: C, Ebm, G#m7sus4".into(),
+                ];
+                // Single long line of all chord names:
+                // let names = app
+                //     .chords
+                //     .iter()
+                //     .map(|c| c.name.clone())
+                //     .collect::<Vec<_>>()
+                //     .join(", ");
+                // lines.push(names);
 
-            // 1) Input box
-            let input = Paragraph::new(app.input.as_str())
-                .block(Block::default().borders(Borders::ALL).title("Chord(s)"));
-            f.render_widget(input, chunks[0]);
+                let help_text = lines.join("\n");
 
-            // 2) Diagrams (unchanged)
-            let max_width = chunks[1].width as usize;
-            let rows = combine_diagrams_grid(&app.diagrams, max_width, 2);
-            // clamp app.scroll …
-            let text = rows.join("\n");
-            let diagrams = Paragraph::new(text)
-                .scroll((app.scroll, 0))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Diagrams")
-                        .border_style(Style::default().add_modifier(Modifier::BOLD)),
-                );
-            f.render_widget(diagrams, chunks[1]);
+                // Centered help box
+                let block_area = {
+                    let w = area.width.saturating_sub(10);
+                    let h = area.height.saturating_sub(6);
+                    let x = area.x + (area.width - w) / 2;
+                    let y = area.y + (area.height - h) / 2;
+                    Rect::new(x, y, w, h)
+                };
 
-            // 3) Footer / info bar
-            let footer_text = "Enter: lookup  |  ↑/↓: scroll  |  Esc/Ctrl-C: quit";
-            let footer = Paragraph::new(footer_text)
-                .style(Style::default().fg(Color::Gray))
-                .alignment(Alignment::Center);
-            f.render_widget(footer, chunks[2]);
+                // Render clear background + help
+                f.render_widget(Clear, block_area);
+                let help_para = Paragraph::new(help_text)
+                    .wrap(Wrap { trim: true })
+                    .scroll((app.help_scroll, 0))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Help ")
+                            .border_style(Style::default().fg(Color::Yellow)),
+                    )
+                    .alignment(Alignment::Left);
+                f.render_widget(help_para, block_area);
+            } else {
+                // Main UI split
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .margin(1)
+                    .constraints([
+                        Constraint::Length(3),
+                        Constraint::Min(5),
+                        Constraint::Length(1),
+                    ])
+                    .split(area);
+
+                // Input box
+                let input = Paragraph::new(app.input.as_str())
+                    .block(Block::default().borders(Borders::ALL).title("Chord(s)"));
+                f.render_widget(input, chunks[0]);
+
+                // Blinking cursor at end of input
+                let x = chunks[0].x + 1 + UnicodeWidthStr::width(app.input.as_str()) as u16;
+                let y = chunks[0].y + 1;
+                f.set_cursor_position((x, y));
+
+                // Diagrams grid
+                // let max_w = chunks[1].width as usize;
+                // let rows = combine_diagrams_grid(&app.diagrams, max_w, 2);
+                // let text = rows.join("\n");
+                // let diags = Paragraph::new(text)
+                //     .scroll((app.scroll, 0))
+                //     .block(
+                //         Block::default()
+                //             .borders(Borders::ALL)
+                //             .title("Diagrams")
+                //             .border_style(Style::default().add_modifier(Modifier::BOLD)),
+                //     );
+                // f.render_widget(diags, chunks[1]);
+                let area = chunks[1];
+                let text_block = if app.diagrams.len() == 1
+                    && app.diagrams[0].starts_with("Type comma separated")
+                {
+                    // INITIAL LOGO + PROMPT
+                    let box_width = area.width as usize;
+                
+                    // 1. ASCII art
+                    let lines = vec![
+                        "     @@@@@@@@                                                        ".to_string(),
+                        "   @@@      @@@@         @@       uke-tui                            ".to_string(),
+                        "  @@@          @@@@@  @@@@@@@@    ishan                              ".to_string(),
+                        " @@               @@@@@   @@@@@   https://github.com/ishan-dubey     ".to_string(),
+                        " @@          ##              @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@        ".to_string(),
+                        "@@           #────,**,────────────────────────────────X   X@@@       ".to_string(),
+                        "@@           #───(,,,,)──────────────────────────────────/   @@@     ".to_string(),
+                        " @@          #──((,,,,))─────────────────────────────────\\     @@@   ".to_string(),
+                        " @@          #───(,,,,)───────────────────────────────X   X      @@@ ".to_string(),
+                        "  @@         ##   ****        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@".to_string(),
+                        "   @@            @@@@       @@@                                      ".to_string(),
+                        "   @@@@@    @@@@@@  @@@@@@@@@                                        ".to_string(),
+                        "      @@@@@@@@                                                       ".to_string(),
+                        // Prompt
+                        "".to_string(),
+                        "Type a chord and press Enter".to_string(),
+                        "".to_string(),
+                    ];
+
+                
+                    // 3. Center each line horizontally
+                    lines
+                        .into_iter()
+                        .map(|line| {
+                            let w = UnicodeWidthStr::width(line.as_str());
+                            if box_width > w {
+                                let left = (box_width - w) / 2;
+                                " ".repeat(left) + &line
+                            } else {
+                                line
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    // NORMAL GRID
+                    let max_w = area.width as usize;
+                    let rows = combine_diagrams_grid(&app.diagrams, max_w, 2);
+                    rows.join("\n")
+                };
+                
+                // Render it
+                let diags = Paragraph::new(text_block)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Diagrams")
+                            .border_style(Style::default().add_modifier(Modifier::BOLD)),
+                    );
+                f.render_widget(diags, area);
+
+                // Footer
+                let footer = Paragraph::new("Enter:lookup  ↑/↓:scroll  ?:help  Esc/C-c:quit")
+                    .style(Style::default().fg(Color::Gray))
+                    .alignment(Alignment::Center);
+                f.render_widget(footer, chunks[2]);
+            }
         })?;
 
-        // Handle input & scrolling
+        // 2) Show or hide terminal cursor
+        if app.help_shown {
+            term.hide_cursor()?;
+        } else {
+            term.show_cursor()?;
+        }
+
+        // 3) Input / scrolling events
         let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_default();
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                match key {
-                    // Exit on Esc or Ctrl+C
-                    KeyEvent { code: KeyCode::Esc, .. }
-                    | KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } =>
-                    {
-                        break
-                    }
-                    // Normal typing
-                    KeyEvent { code: KeyCode::Char(c), .. } => {
-                        app.input.push(c);
-                    }
-                    KeyEvent { code: KeyCode::Backspace, .. } => {
-                        app.input.pop();
-                    }
-                    // Enter = lookup
-                    KeyEvent { code: KeyCode::Enter, .. } => {
-                        app.lookup();
-                    }
-                    // Scroll up/down
-                    KeyEvent { code: KeyCode::Up, .. } => {
-                        if app.scroll > 0 {
-                            app.scroll -= 1;
+                if app.help_shown {
+                    match key {
+                        KeyEvent { code: KeyCode::Esc, .. }
+                        | KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } =>
+                        {
+                            app.help_shown = false;
                         }
+                        KeyEvent { code: KeyCode::Up, .. } => {
+                            if app.help_scroll > 0 {
+                                app.help_scroll -= 1;
+                            }
+                        }
+                        KeyEvent { code: KeyCode::Down, .. } => {
+                            app.help_scroll = app.help_scroll.saturating_add(1);
+                        }
+                        _ => {}
                     }
-                    KeyEvent { code: KeyCode::Down, .. } => {
-                        app.scroll = app.scroll.saturating_add(1);
+                } else {
+                    match key {
+                        KeyEvent { code: KeyCode::Char('?'), .. } => {
+                            app.help_shown = true;
+                            app.help_scroll = 0;
+                        }
+                        KeyEvent { code: KeyCode::Esc, .. }
+                        | KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } =>
+                        {
+                            break;
+                        }
+                        KeyEvent { code: KeyCode::Char(c), .. } => {
+                            app.input.push(c);
+                        }
+                        KeyEvent { code: KeyCode::Backspace, .. } => {
+                            app.input.pop();
+                        }
+                        KeyEvent { code: KeyCode::Enter, .. } => {
+                            app.lookup();
+                        }
+                        KeyEvent { code: KeyCode::Up, .. } => {
+                            if app.scroll > 0 {
+                                app.scroll -= 1;
+                            }
+                        }
+                        KeyEvent { code: KeyCode::Down, .. } => {
+                            app.scroll = app.scroll.saturating_add(1);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
 
+        // 4) Throttle loop
         if last_tick.elapsed() >= tick_rate {
             last_tick = Instant::now();
         }
     }
 
-    // Restore terminal
+
+    // restore
     disable_raw_mode()?;
     execute!(
-        terminal.backend_mut(),
+        term.backend_mut(),
         LeaveAlternateScreen,
         DisableMouseCapture
     )?;
-    terminal.show_cursor()?;
+    term.show_cursor()?;
     Ok(())
 }
 
