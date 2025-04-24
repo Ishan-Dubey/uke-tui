@@ -31,10 +31,10 @@ impl Chord {
             };
         }
 
-        // Extract root & quality (e.g. "C#" + "dim")
+        // Extract root & type (e.g. "C#" + "dim")
         let (root, quality) = Self::split_name(&name)?;
 
-        // Build full alias names: [alias_root + quality]
+        // Build full alias names: [alias_root + type]
         let alias_roots = Self::alias_roots(&root);
         let alias_names = alias_roots
             .into_iter()
@@ -44,9 +44,9 @@ impl Chord {
         Some(Chord { name, frets, alias_names })
     }
 
-    /// Load all chords from a simple `chords.txt` (skips empty/“#” lines)
+    /// Load all chords from `chords.txt` (skips empty/“#” lines)
     pub fn load_from_file(path: &str) -> Vec<Self> {
-        let file = File::open(path).expect("Could not open chord file");
+        let file = File::open(path).expect("Could not open chord file.");
         let reader = BufReader::new(file);
         reader
             .lines()
@@ -81,7 +81,7 @@ impl Chord {
         }
     }
 
-    /// Does this chord match the user’s input (case-insensitive)?
+    /// Check of this chord matches the user’s input (case-insensitive).
     pub fn matches_name(&self, input: &str) -> bool {
         if self.name.eq_ignore_ascii_case(input) {
             true
@@ -108,12 +108,12 @@ impl Chord {
         }
         out.push('\n');
 
-        // Divider
+        // Divider line
         let total_width = prefix.len() + ((end_fret - start_fret + 1) as usize)*3;
         out.push_str(&"-".repeat(total_width));
         out.push('\n');
 
-        // Each string row (A→G)
+        // Each string row (A E C G)
         for &i in &[3,2,1,0] {
             let s = strings[i];
             let fv = self.frets[i];
@@ -125,7 +125,7 @@ impl Chord {
             // e.g. "G O| "
             out.push_str(&format!("{} {}| ", s, ind));
 
-            // cells
+            // Cells
             for f in start_fret..=end_fret {
                 if fv == Some(f) {
                     out.push_str("●  ");
@@ -139,9 +139,9 @@ impl Chord {
         out
     }
     
-    // ──────────────── private helpers ────────────────
+// ──────────────── Helper functions ────────────────
 
-    /// Split "C#dim" → ("C#", "dim")
+    /// Split a chord into note + type. "C#dim" → ("C#", "dim")
     fn split_name(name: &str) -> Option<(String, String)> {
         // Try the 2-char roots first, then single letters
         let roots = [
@@ -157,7 +157,7 @@ impl Chord {
         None
     }
 
-    /// For a given root, list its enharmonic equivalents
+    /// For a given root, list its equivalents
     fn alias_roots(root: &str) -> Vec<&'static str> {
         match root {
             "C#" => vec!["Db"],

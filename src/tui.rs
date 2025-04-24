@@ -19,17 +19,20 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::chords::Chord;
 
+/// Struct for the TUI app.
 pub struct App {
     input: String,
     chords: Vec<Chord>,
     diagrams: Vec<String>,
-    scroll: u16,       // scroll for diagrams
-    help_shown: bool,  // whether help modal is visible
-    help_scroll: u16,  // scroll for help modal
+    scroll: u16, // scroll for diagrams
+    help_shown: bool, // whether help modal is visible
+    help_scroll: u16, // scroll for help modal
 }
 
 
 impl App {
+
+    /// Creates a new app instance
     pub fn new(chords: Vec<Chord>) -> Self {
         Self {
             input: String::new(),
@@ -41,15 +44,15 @@ impl App {
         }
     }
 
+    /// Chord lookup with help funtionality
     fn lookup(&mut self) {
-        // same two-pass global range logic as before, but skip if help is shown
         self.help_shown = false;
         self.help_scroll = 0;
         let raw = self.input.trim();
         self.diagrams.clear();
         if raw.is_empty() {
             self.diagrams.push(
-                "Please enter one or more chords, separated by commas".into()
+                "Please enter one or more chords, separated by commas.".into()
             );
         } else {
             // collect matches / not-founds
@@ -104,7 +107,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
     let mut last_tick = Instant::now();
 
     loop {
-        // 1) Draw
+        // Draw the interface
         term.draw(|f| {
 
             let area = f.area();
@@ -161,6 +164,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                     .alignment(Alignment::Left);
                 f.render_widget(help_para, block_area);
             } else {
+
                 // Main UI split
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
@@ -202,7 +206,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                     // INITIAL LOGO + PROMPT
                     let box_width = area.width as usize;
                 
-                    // 1. ASCII art
+                    // ASCII art
                     let lines = vec![
                         "     @@@@@@@@                                                        ".to_string(),
                         "   @@@      @@@@         @@       uke-tui                            ".to_string(),
@@ -224,7 +228,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                     ];
 
                 
-                    // 3. Center each line horizontally
+                    // Center each line horizontally
                     lines
                         .into_iter()
                         .map(|line| {
@@ -239,7 +243,7 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
                         .collect::<Vec<_>>()
                         .join("\n")
                 } else {
-                    // NORMAL GRID
+                    // Normal grid
                     let max_w = area.width as usize;
                     let rows = combine_diagrams_grid(&app.diagrams, max_w, 2);
                     rows.join("\n")
@@ -263,14 +267,14 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
             }
         })?;
 
-        // 2) Show or hide terminal cursor
+        // Show or hide terminal cursor
         if app.help_shown {
             term.hide_cursor()?;
         } else {
             term.show_cursor()?;
         }
 
-        // 3) Input / scrolling events
+        // Input / scrolling events
         let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_default();
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
@@ -325,14 +329,14 @@ pub fn run_tui(mut app: App) -> io::Result<()> {
             }
         }
 
-        // 4) Throttle loop
+        // Throttle loop
         if last_tick.elapsed() >= tick_rate {
             last_tick = Instant::now();
         }
     }
 
 
-    // restore
+    // Restore
     disable_raw_mode()?;
     execute!(
         term.backend_mut(),
@@ -350,7 +354,7 @@ fn combine_diagrams_grid(
     max_width: usize,
     spacing: usize,
 ) -> Vec<String> {
-    // 1) Split into lines and compute each block’s display‐width & height
+    // Split into lines and compute each block’s display‐width & height
     let blocks: Vec<Vec<String>> = diagrams
         .iter()
         .map(|d| d.lines().map(str::to_string).collect())
@@ -369,7 +373,7 @@ fn combine_diagrams_grid(
 
     let heights: Vec<usize> = blocks.iter().map(|lines| lines.len()).collect();
 
-    // 2) Pack block indices into rows
+    // Pack block indices into rows
     let mut rows: Vec<Vec<usize>> = Vec::new();
     let mut cur: Vec<usize> = Vec::new();
     let mut used_w = 0;
@@ -393,11 +397,11 @@ fn combine_diagrams_grid(
         rows.push(cur);
     }
 
-    // 3) Build each output line
+    // Build each output line
     let mut out: Vec<String> = Vec::new();
 
     for row in rows {
-        // how tall is this row?
+        // How tall is this row?
         let row_h = row.iter().map(|&i| heights[i]).max().unwrap_or(0);
 
         for line_idx in 0..row_h {
@@ -405,16 +409,16 @@ fn combine_diagrams_grid(
 
             for (j, &block_i) in row.iter().enumerate() {
                 let block = &blocks[block_i];
-                // get the text for this line, or "" if the block has fewer lines
+                // Get the text for this line, or "" if the block has fewer lines
                 let cell = block.get(line_idx).map(String::as_str).unwrap_or("");
                 let disp = UnicodeWidthStr::width(cell);
                 let pad = widths[block_i].saturating_sub(disp);
 
                 line.push_str(cell);
-                // pad with spaces to the block’s full width
+                // Pad with spaces to the block’s full width
                 line.push_str(&" ".repeat(pad));
 
-                // spacing between blocks
+                // Spacing between blocks
                 if j + 1 < row.len() {
                     line.push_str(&" ".repeat(spacing));
                 }
@@ -423,7 +427,7 @@ fn combine_diagrams_grid(
             out.push(line);
         }
 
-        // blank separator row between block‐rows
+        // Blank separator row between block‐rows
         out.push(String::new());
     }
 
