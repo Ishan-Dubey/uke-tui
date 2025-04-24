@@ -61,6 +61,25 @@ impl Chord {
             })
             .collect()
     }
+    
+    /// Inspect this chord’s frets and return (min_fret, max_fret), ignoring 0/Open and X/None.
+    pub fn fret_bounds(&self) -> Option<(u8, u8)> {
+        let used: Vec<u8> = self
+            .frets
+            .iter()
+            .filter_map(|&f| match f {
+                Some(0) | None => None,
+                Some(x) => Some(x),
+            })
+            .collect();
+        if used.is_empty() {
+            None
+        } else {
+            let min = *used.iter().min().unwrap();
+            let max = *used.iter().max().unwrap();
+            Some((min, max))
+        }
+    }
 
     /// Does this chord match the user’s input (case-insensitive)?
     pub fn matches_name(&self, input: &str) -> bool {
@@ -71,6 +90,53 @@ impl Chord {
                 .iter()
                 .any(|alias| alias.eq_ignore_ascii_case(input))
         }
+    }
+
+    /// Render this chord over exactly start..=end frets (all rows use the same window).
+    pub fn render_range(&self, start_fret: u8, end_fret: u8) -> String {
+        let strings = ["G","C","E","A"];
+        let mut out = String::new();
+
+        // Title
+        out.push_str(&format!("Chord: {}\n", self.name));
+
+        // Header indent + fret numbers
+        let prefix = "   ";          // 3 spaces
+        out.push_str(prefix);
+        for f in start_fret..=end_fret {
+            out.push_str(&format!("{:>3}", f));
+        }
+        out.push('\n');
+
+        // Divider
+        let total_width = prefix.len() + ((end_fret - start_fret + 1) as usize)*3;
+        out.push_str(&"-".repeat(total_width));
+        out.push('\n');
+
+        // Each string row (A→G)
+        for &i in &[3,2,1,0] {
+            let s = strings[i];
+            let fv = self.frets[i];
+            let ind = match fv {
+                Some(0) => 'O',
+                None    => 'X',
+                _       => ' ',
+            };
+            // e.g. "G O| "
+            out.push_str(&format!("{} {}| ", s, ind));
+
+            // cells
+            for f in start_fret..=end_fret {
+                if fv == Some(f) {
+                    out.push_str("●  ");
+                } else {
+                    out.push_str("-  ");
+                }
+            }
+            out.push('\n');
+        }
+
+        out
     }
 
     /// Very simple horizontal 0–4 fretboard (open = O, mute = X, note = ●)

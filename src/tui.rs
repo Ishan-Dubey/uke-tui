@@ -40,29 +40,66 @@ impl App {
     fn lookup(&mut self) {
         let raw = self.input.trim();
         self.diagrams.clear();
+
         if raw.is_empty() {
-            self.diagrams.push("Please enter one or more chords, separated by commas".into());
+            self.diagrams.push(
+                "Please enter one or more chords, separated by commas".into()
+            );
         } else {
+            // 1) Collect (user_key, &Chord) for each match; push "not found" immediately.
+            let mut selected: Vec<(String, &Chord)> = Vec::new();
             for entry in raw.split(',') {
-                let key = entry.trim();
+                let key = entry.trim().to_string();
                 if key.is_empty() {
                     continue;
                 }
-                if let Some(chord) = self.chords.iter().find(|c| c.matches_name(key)) {
-                    let mut d = chord.render();
+                match self.chords.iter().find(|c| c.matches_name(&key)) {
+                    Some(ch) => selected.push((key, ch)),
+                    None     => self.diagrams.push(format!("Chord not found: {}", key)),
+                }
+            }
+
+            // 2) If we have at least one real chord, compute the common fret window:
+            if !selected.is_empty() {
+                let mut global_min = u8::MAX;
+                let mut global_max = 0u8;
+                let mut has_open = false;
+
+                for (_, chord) in &selected {
+                    // detect open strings
+                    if chord.frets.iter().any(|&f| f == Some(0)) {
+                        has_open = true;
+                    }
+                    // get its fret bounds
+                    if let Some((mn, mx)) = chord.fret_bounds() {
+                        global_min = global_min.min(mn);
+                        global_max = global_max.max(mx);
+                    }
+                }
+
+                // decide start/end
+                let start = if has_open || global_min < 2 { 1 } else { global_min };
+                // ensure at least a 5-fret window if you like:
+                let end   = std::cmp::max(global_max, start + 4);
+
+                // 3) Render every selected chord with that window
+                for (key, chord) in selected {
+                    // use render_range and then swap out the stored name
+                    let mut d = chord.render_range(start, end);
                     if let Some(pos) = d.find('\n') {
                         let rest = &d[pos..];
                         d = format!("Chord: {}\n{}", key, rest);
                     }
                     self.diagrams.push(d);
-                } else {
-                    self.diagrams.push(format!("Chord not found: {}", key));
                 }
             }
         }
+
+        // clear input & reset scroll
         self.input.clear();
         self.scroll = 0;
     }
+
 }
 
 pub fn run_tui(mut app: App) -> io::Result<()> {
